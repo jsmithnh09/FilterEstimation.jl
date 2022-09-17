@@ -1,4 +1,5 @@
 using FilterEstimation, Test
+using Optim
 
 Δ = 1e-3
 @testset "buttord" begin
@@ -205,16 +206,9 @@ end
 
 end
 
-@testset "remez" begin
-    #
-    # Using the test-cases highlighted in [^Parks] Figures 8 and 15.
-    #
-    # [^Parks]: Rabiner, L. R., McClellan, J. H., & Parks, T. W. (1975). 
-    #   FIR digital filter design techniques using weighted Chebyshev 
-    #   approximation. Proceedings of the IEEE, 63(4), 595-610.
-    #
-    @test remezord(0.41665, 0.49417, 0.0116, 0.0001) == 39
-    @test remezord(0.135, 0.203, 0.1, 0.1) == 10
-    @test remezord(0.203, 0.135, 0.1, 0.1) == 10 # flipped HPF case.
-    @test remezord(0.00963, 0.13271, 0.0116, 0.0001) == 24
+@testset "brent's method" begin
+    f1(x) = (x + 3) * ((x - 1)^2)
+    @test ≈(f1(optimize(f1, -4.0, 4.0).minimizer), 0.0, atol=1e-8)
+    @test ≈(cos(optimize(cos, -4.0, 4.0).minimizer), -1.0, atol=1e-8)
+    @test ≈(sin(optimize(sin, -2.0, 2.0).minimizer), -1.0, atol=1e-8)
 end
