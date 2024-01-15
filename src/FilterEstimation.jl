@@ -1,20 +1,16 @@
 module FilterEstimation
 
-using DSP
-using Optim: optimize
-using SpecialFunctions: ellipk
+using SpecialFunctions, Optim, DSP
 
-export buttord, cheb1ord, cheb2ord, ellipord
+export buttord, ellipord, cheb1ord, cheb2ord, remezord
 
 toprototype(Wp::Real, Ws::Real, ftype::Type{Lowpass}) = Ws / Wp
 toprototype(Wp::Real, Ws::Real, ftype::Type{Highpass}) = Wp / Ws
-
 function toprototype(Wp::Tuple{Real,Real}, Ws::Tuple{Real,Real}, ftype::Type{Bandpass})
     # bandpass filter must have two corner frequencies we're computing with
     Wa = (Ws .^ 2 .- Wp[1] * Wp[2]) ./ (Ws .* (Wp[1] - Wp[2]))
     minimum(abs.(Wa))
 end
-
 toprototype(Wp::Tuple{Real,Real}, Ws::Tuple{Real,Real}, Rp::Real, Rs::Real, ftype::Type{Bandstop}) = butterworth_bsfmin(Wp, Ws, Rp, Rs)
 fromprototype(Wp::Real, Wscale::Real, ftype::Type{Lowpass}) = Wp * Wscale
 fromprototype(Wp::Real, Wscale::Real, ftype::Type{Highpass}) = Wp / Wscale
@@ -35,7 +31,7 @@ function fromprototype(Wp::Tuple{Real,Real}, Wscale::Real, ftype::Type{Bandpass}
 end
 
 butterworth_order_estimate(Rp::Real, Rs::Real, warp::Real) = (log(db2pow(Rs) - 1) - log(db2pow(Rp) - 1)) / (2 * log(warp))
-natfreq_estimate(warp::Real, Rs::Real, order::Integer) = warp / (db2pow(Rs) - 1)^(1 / (2 * order))
+butterworth_natfreq_estimate(warp::Real, Rs::Real, order::Integer) = warp / (db2pow(Rs) - 1)^(1 / (2 * order))
 
 function elliptic_order_estimate(Rp::Real, Rs::Real, Wa::Real)
     # Elliptic integer order estmate. Requires Complete Elliptic integral of first kind.
@@ -77,10 +73,10 @@ for filt in (:butterworth, :elliptic, :chebyshev)
             # NOTE: the optimization function will adjust the corner frequencies in Wp, returning a new passband tuple.
             Δ = eps(typeof(Wp[1]))^(2 / 3)
             C₁(w) = $(Symbol(string(filt, "_bsfcost")))(w, true, Wp, Ws, Rp, Rs)
-            p1 = optimize(C₁, Wp[1], Ws[1] - Δ)
+            p1 = brent(C₁, Wp[1], Ws[1] - Δ)
 
             C₂(w) = $(Symbol(string(filt, "_bsfcost")))(w, false, tuple(p1, Wp[2]), Ws, Rp, Rs)
-            p2 = optimize(C₂, Ws[2] + Δ, Wp[2])
+            p2 = brent(C₂, Ws[2] + Δ, Wp[2])
             Wadj = tuple(p1, p2)
 
             Wa = (Ws .* (Wadj[1] - Wadj[2])) ./ (Ws .^ 2 .- (Wadj[1] * Wadj[2]))
@@ -91,6 +87,7 @@ end
 
 """
     (N, ωn) = buttord(Wp::Tuple{Real,Real}, Ws::Tuple{Real,Real}, Rp::Real, Rs::Real; domain=:z)
+
 Butterworth order estimate for bandpass and bandstop filter types.  `Wp` and `Ws` are 2-element pass 
 and stopband frequency edges, with no more than `Rp` dB passband ripple and at least `Rs` dB stopband 
 attenuation. Based on the ordering of passband and bandstop edges,  the Bandstop or Bandpass filter 
@@ -106,6 +103,7 @@ function buttord(Wp::Tuple{Real,Real}, Ws::Tuple{Real,Real}, Rp::Real, Rs::Real;
     Wss = (Ws[1] > Ws[2]) ? tuple(Ws[2], Ws[1]) : tuple(Ws[1], Ws[2])
 
     # infer filter type based on ordering of edges.
+    (Wps[1] < Wss[1]) != (Wps[2] > Wss[2]) && throw(ArgumentError("Pass and stopband edges must be ordered for Bandpass/Bandstop filters."))
     ftype = (Wps[1] < Wss[1]) ? Bandstop : Bandpass
 
     # pre-warp both components, (if Z-domain specified)
@@ -129,7 +127,7 @@ function buttord(Wp::Tuple{Real,Real}, Ws::Tuple{Real,Real}, Rp::Real, Rs::Real;
     # get the integer order estimate.
     N = ceil(Int, butterworth_order_estimate(Rp, Rs, wa))
 
-    wscale = natfreq_estimate(wa, Rs, N)
+    wscale = butterworth_natfreq_estimate(wa, Rs, N)
     if (domain == :z)
         ωn = (2 / π) .* atan.(fromprototype(wpadj, wscale, ftype))
     else
@@ -140,6 +138,7 @@ end
 
 """
     (N, ωn) = buttord(Wp::Real, Ws::Real, Rp::Real, Rs::Real; domain=:z)
+
 LPF/HPF Butterworth filter order and -3 dB frequency approximation. `Wp` and `Ws` are 
 the passband and stopband frequencies, whereas Rp and Rs  are the passband and stopband 
 ripple attenuations in dB. If the passband is greater than stopband, the filter type 
@@ -169,7 +168,7 @@ function buttord(Wp::Real, Ws::Real, Rp::Real, Rs::Real; domain::Symbol=:z)
     N = ceil(Int, butterworth_order_estimate(Rp, Rs, wa))
 
     # specifications for the stopband ripple are met precisely.
-    wscale = natfreq_estimate(wa, Rs, N)
+    wscale = butterworth_natfreq_estimate(wa, Rs, N)
 
     # convert back to the original analog filter
     if (domain == :z)
@@ -190,6 +189,7 @@ for (fcn, est, filt) in ((:ellipord, :elliptic, "Elliptic (Cauer)"),
     @eval begin
         """
             (N, ωn) = $($fcn)(Wp::Real, Ws::Real, Rp::Real, Rs::Real; domain::Symbol=:z)
+
         Integer and natural frequency order estimation for $($filt) Filters. `Wp`
         and `Ws` indicate the passband and stopband frequency edges, and `Rp` and `Rs` indicate
         the maximum loss in the passband and the minimum attenuation in the stopband, (in dB.)
@@ -223,6 +223,7 @@ for (fcn, est, filt) in ((:ellipord, :elliptic, "Elliptic (Cauer)"),
 
         """
             (N, ωn) = $($fcn)(Wp::Tuple{Real, Real}, Ws::Tuple{Real, Real}, Rp::Real, Rs::Real; domain::Symbol=:z)
+
         Integer and natural frequency order estimation for $($filt) Filters. `Wp` and `Ws` are 2-element
         frequency edges for Bandpass/Bandstop cases, with `Rp` and `Rs` representing the ripple maximum loss
         in the passband and minimum ripple attenuation in the stopband in dB. Based on the ordering of passband 
@@ -235,6 +236,7 @@ for (fcn, est, filt) in ((:ellipord, :elliptic, "Elliptic (Cauer)"),
         function $fcn(Wp::Tuple{Real,Real}, Ws::Tuple{Real,Real}, Rp::Real, Rs::Real; domain::Symbol=:z)
             Wps = (Wp[1] > Wp[2]) ? tuple(Wp[2], Wp[1]) : tuple(Wp[1], Wp[2])
             Wss = (Ws[1] > Ws[2]) ? tuple(Ws[2], Ws[1]) : tuple(Ws[1], Ws[2])
+            (Wps[1] < Wss[1]) != (Wps[2] > Wss[2]) && throw(ArgumentError("Pass and stopband edges must be ordered for Bandpass/Bandstop filters."))
             ftype = (Wps[1] < Wss[1]) ? Bandstop : Bandpass
             # pre-warp to analog if z-domain.
             (Ωp, Ωs) = (domain == :z) ? (tan.(π / 2 .* Wps), tan.(π / 2 .* Wss)) : (Wps, Wss)
@@ -251,8 +253,10 @@ for (fcn, est, filt) in ((:ellipord, :elliptic, "Elliptic (Cauer)"),
     end
 end
 
+
 """
     (N, ωn) = cheb2ord(Wp::Real, Ws::Real, Rp::Real, Rs::Real; domain::Symbol=:z)
+
 Integer and natural frequency order estimation for Chebyshev Type II (inverse) Filters. `Wp` and `Ws`
 are the frequency edges for Bandpass/Bandstop cases, with `Rp` and `Rs` representing the ripple maximum
 loss in the passband and minimum ripple attenuation in the stopband in dB. Based on the ordering of
@@ -278,6 +282,7 @@ end
 
 """
     (N, ωn) = cheb2ord(Wp::Tuple{Real, Real}, Ws::Tuple{Real, Real}, Rp::Real, Rs::Real; domain::Symbol=:z)
+
 Integer and natural frequency order estimation for Chebyshev Type II (inverse) Filters. `Wp` and `Ws` are 
 2-element frequency edges for Bandpass/Bandstop cases, with `Rp` and `Rs` representing  the ripple maximum 
 loss in the passband and minimum ripple attenuation in the stopband in dB. Based on the ordering of passband 
@@ -290,6 +295,7 @@ frequencies as normalized from 0 to 1, where 1 corresponds to π radians/sample.
 function cheb2ord(Wp::Tuple{Real,Real}, Ws::Tuple{Real,Real}, Rp::Real, Rs::Real; domain::Symbol=:z)
     Wps = (Wp[1] > Wp[2]) ? tuple(Wp[2], Wp[1]) : tuple(Wp[1], Wp[2])
     Wss = (Ws[1] > Ws[2]) ? tuple(Ws[2], Ws[1]) : tuple(Ws[1], Ws[2])
+    (Wps[1] < Wss[1]) != (Wps[2] > Wss[2]) && throw(ArgumentError("Pass and stopband edges must be ordered for Bandpass/Bandstop filters."))
     ftype = (Wps[1] < Wss[1]) ? Bandstop : Bandpass
     (Ωp, Ωs) = (domain == :z) ? (tan.(π / 2 .* Wps), tan.(π / 2 .* Wss)) : (Wps, Wss)
     if (ftype == Bandpass)
@@ -321,9 +327,12 @@ end
 Order estimation for lowpass digital filter cases based
 on the equations and coefficients in [^Rabiner]. The original
 equation returned the minimum filterlength, whereas this implementation 
-returns the order (N=L-1). Results are valid within 1.3% error. `Wp` and 
-`Ws` are the normalized passband and stopband frequencies, with `Rp` indicating 
-the passband ripple and `Rs` is the stopband attenuation (linear.) 
+returns the order (N=L-1). `Wp` and  `Ws` are the normalized passband and 
+stopband frequencies, with `Rp` indicating the passband ripple and `Rs` is the 
+stopband attenuation (linear.) 
+
+NOTE: The value of N is an initial approximation. If under-estimated, the order
+should be increased until the design specifications are met.
 
 [^Rabiner]: Herrmann, O., Lawrence R. Rabiner, and D. S. K. Chan. "Practical 
 design rules for optimum finite impulse response lowpass digital filters." Bell System 
@@ -337,9 +346,7 @@ function remezord(Wp::Real, Ws::Real, Rp::Real, Rs::Real)
     B = (2.66e-3 * L1^2) + (0.5941 * L1) + 0.4278
     Kf = 0.51244 * (L1 - L2) + 11.01217
     D = A * L2 - B
-    L = ((D - Kf * df^2) / df) + 1
-    return ceil(Int, L) - 1
+    return ceil(Int, ((D - Kf * df^2) / df))
 end
-
 
 end # module

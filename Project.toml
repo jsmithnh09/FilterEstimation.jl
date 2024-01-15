@@ -1,9 +1,9 @@
 name = "FilterEstimation"
-uuid = "8b70eecf-4906-419e-ac53-82b8ac63a629"
-authors = ["Jordan Smith <jsmithnh09@gmail.com>"]
-version = "0.1.0"
+author = "Jordan Smith <jsmithnh09@gmail.com>"
+verison = "0.2.0"
 
 [deps]
 DSP = "717857b8-e6f2-59f4-9121-6e50c889abd2"
 Optim = "429524aa-4258-5aef-a3af-852621145aeb"
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

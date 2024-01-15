@@ -1,5 +1,5 @@
-using FilterEstimation, Test
-using Optim
+using DSP, Test
+
 
 Δ = 1e-3
 @testset "buttord" begin
@@ -204,13 +204,6 @@ end
     @test ≈(Wnbs[1], 0.2159740591083134, rtol=Δ)
     @test ≈(Wnbs[2], 0.5195028184932494, rtol=Δ)
 
-end
-
-@testset "brent's method" begin
-    f1(x) = (x + 3) * ((x - 1)^2)
-    @test ≈(f1(optimize(f1, -4.0, 4.0).minimizer), 0.0, atol=1e-8)
-    @test ≈(cos(optimize(cos, -4.0, 4.0).minimizer), -1.0, atol=1e-8)
-    @test ≈(sin(optimize(sin, -2.0, 2.0).minimizer), -1.0, atol=1e-8)
 end
 
 @testset "remezord" begin
