@@ -3,7 +3,7 @@ name: CI
 # trigger on PR to reduce # of free minutes from GitHub runners.
 on:
   pull_request:
-    branches: [ "master" ]
+    branches: [ "master", "main" ]
 
 jobs:
   test:
