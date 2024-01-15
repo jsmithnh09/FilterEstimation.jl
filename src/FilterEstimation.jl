@@ -4,6 +4,91 @@ using SpecialFunctions, Optim, DSP
 
 export buttord, ellipord, cheb1ord, cheb2ord, remezord
 
+# W. H. Press, et al. Numerical recipes. Third Edition. Cambridge university press, 2007. Chapter 10.3
+function brent(f, x1::T, x2::T) where {T<:AbstractFloat}
+    a, b = x1, x2
+    fa, fb = f(a), f(b)
+    ϵ, rtol = eps(T), √(eps(T))
+    g = 1 / 2 * (3 - √(5)) # golden ratio
+    k = zero(T)
+    k1 = zero(T)
+
+    # first interval calculation.
+    m = a + g * (b - a)
+    m1, m2 = m, m
+    fm = f(m)
+    fm1, fm2 = fm, fm
+    iter = 0
+
+    while (iter < 1_000)
+        p, q = zero(T), zero(T)
+        xt = rtol * abs(m) + ϵ
+        c = (b + a) / 2
+        if (abs(m - c) ≤ 2 * xt - (b - a) / 2)
+            break
+        end
+        iter += 1
+        if (abs(k1) > xt) # trial parabolic fit
+            r = (m - m1) * (fm - fm2)
+            q = (m - m2) * (fm - fm1)
+            p = (m - m2) * q - (m - m1) * r
+            q = 2 * (q - r)
+            if (q > 0)
+                p = -p
+            else
+                q = -q
+            end
+        end
+        if abs(p) < abs(q * k1 / 2) && (p < q * (b - m)) && (p < q * (m - a)) # parabolic step
+            k1 = k
+            k = p / q
+            if ((m + k) < 2 * xt) || ((b - (m + k)) < 2 * xt)
+                k = (m < c) ? xt : -xt
+            end
+        else
+            k1 = (m < c) ? b - m : a - m
+            k = g * k1
+        end
+
+        if (abs(k) > xt)
+            xn = m + k
+        else
+            xn = m + ((k > 0) ? xt : -xt)
+        end
+        # re-assign variables for next iteration, ("Housekeeping" in [3])
+        fn = f(xn)
+        if (fn < fm)
+            if (xn < m)
+                b = m
+            else
+                a = m
+            end
+            m2 = m1
+            fm2 = fm1
+            m1 = m
+            fm1 = fm
+            m = xn
+            fm = fn
+        else
+            if (xn < m)
+                a = xn
+            else
+                b = xn
+            end
+            if (fn ≤ fm1) || (m1 == m)
+                m2 = m1
+                fm2 = fm1
+                m1 = xn
+                fm1 = fn
+            elseif (fn ≤ fm2 || m2 == m || m2 == m1)
+                m2 = xn
+                fm2 = fn
+            end
+        end
+    end
+    m
+end
+
 toprototype(Wp::Real, Ws::Real, ftype::Type{Lowpass}) = Ws / Wp
 toprototype(Wp::Real, Ws::Real, ftype::Type{Highpass}) = Wp / Ws
 function toprototype(Wp::Tuple{Real,Real}, Ws::Tuple{Real,Real}, ftype::Type{Bandpass})
